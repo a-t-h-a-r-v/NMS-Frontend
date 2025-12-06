@@ -1,22 +1,25 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar } from 'lucide-react';
+import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar, Pencil } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Dashboard() {
   const [devices, setDevices] = useState([]);
   const [search, setSearch] = useState("");
-  const [showAdd, setShowAdd] = useState(false);
+  
+  // Modal States
+  const [showModal, setShowModal] = useState(false);
+  const [showScan, setShowScan] = useState(false);
   
   // Scanning States
-  const [showScan, setShowScan] = useState(false);
   const [scanCidr, setScanCidr] = useState("192.168.1.0/24");
   const [scanResults, setScanResults] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
 
-  const [newDevice, setNewDevice] = useState({ hostname: '', ip: '', community: 'public' });
+  // Form State (Used for both Add and Edit)
+  const [formData, setFormData] = useState({ id: null, hostname: '', ip: '', community: 'public' });
 
   const fetchDevices = () => {
     axios.get(`${API_URL}/devices?q=${search}`)
@@ -28,20 +31,49 @@ export default function Dashboard() {
     return () => clearTimeout(delayDebounce);
   }, [search]);
 
+  // Actions
   const handleAction = async (action, id) => {
-    if (action === 'delete' && !confirm("Are you sure?")) return;
+    if (action === 'delete' && !confirm("Are you sure you want to delete this device?")) return;
     await axios.post(`${API_URL}/device/action`, { action, id });
     fetchDevices();
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    await axios.post(`${API_URL}/devices`, newDevice);
-    setShowAdd(false);
-    setNewDevice({ hostname: '', ip: '', community: 'public' });
-    fetchDevices();
+  // Open Modal for Create
+  const openCreate = () => {
+    setFormData({ id: null, hostname: '', ip: '', community: 'public' });
+    setShowModal(true);
   };
 
+  // Open Modal for Edit
+  const openEdit = (device) => {
+    setFormData({ 
+      id: device.id, 
+      hostname: device.hostname, 
+      ip: device.ip, 
+      community: device.community || 'public' 
+    });
+    setShowModal(true);
+  };
+
+  // Handle Save (Create or Update)
+  const handleSave = async (e) => {
+    e.preventDefault();
+    try {
+      if (formData.id) {
+        // Edit Mode (PUT)
+        await axios.put(`${API_URL}/devices`, formData);
+      } else {
+        // Create Mode (POST)
+        await axios.post(`${API_URL}/devices`, formData);
+      }
+      setShowModal(false);
+      fetchDevices();
+    } catch (err) {
+      alert("Error saving device: " + err.message);
+    }
+  };
+
+  // Scanning Logic
   const runScan = async () => {
     setIsScanning(true);
     setScanResults([]);
@@ -58,12 +90,12 @@ export default function Dashboard() {
   const addDiscovered = async (host) => {
     await axios.post(`${API_URL}/devices`, { hostname: host.hostname, ip: host.ip, community: 'public' });
     fetchDevices();
-    // Remove from results list to show it's done
     setScanResults(scanResults.filter(r => r.ip !== host.ip));
   };
 
   return (
     <div>
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <h1 className="text-2xl font-bold text-slate-800">Device Dashboard</h1>
         
@@ -82,7 +114,7 @@ export default function Dashboard() {
           <button onClick={() => setShowScan(!showScan)} className="bg-indigo-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-indigo-700 transition">
             <Radar size={18} /> Scan
           </button>
-          <button onClick={() => setShowAdd(!showAdd)} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700 transition">
+          <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700 transition">
             <Plus size={18} /> Add
           </button>
         </div>
@@ -101,45 +133,51 @@ export default function Dashboard() {
                     onChange={e => setScanCidr(e.target.value)} 
                     placeholder="192.168.1.0/24"
                 />
-                <button 
-                    onClick={runScan} 
-                    disabled={isScanning}
-                    className="bg-indigo-600 text-white px-6 py-2 rounded disabled:opacity-50"
-                >
+                <button onClick={runScan} disabled={isScanning} className="bg-indigo-600 text-white px-6 py-2 rounded disabled:opacity-50">
                     {isScanning ? "Scanning..." : "Start Scan"}
                 </button>
             </div>
-            
             {scanResults.length > 0 && (
                 <div className="bg-slate-50 rounded border p-4">
-                    <h4 className="font-bold text-sm text-slate-500 uppercase mb-2">Discovered Devices</h4>
                     <ul className="space-y-2">
                         {scanResults.map((r, i) => (
                             <li key={i} className="flex justify-between items-center bg-white p-2 rounded shadow-sm">
-                                <div>
-                                    <span className="font-bold block">{r.ip}</span>
-                                    <span className="text-xs text-slate-500">{r.hostname}</span>
-                                </div>
-                                <button onClick={() => addDiscovered(r)} className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded font-bold hover:bg-green-200">
-                                    ADD
-                                </button>
+                                <div><span className="font-bold block">{r.ip}</span><span className="text-xs text-slate-500">{r.hostname}</span></div>
+                                <button onClick={() => addDiscovered(r)} className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded font-bold hover:bg-green-200">ADD</button>
                             </li>
                         ))}
                     </ul>
                 </div>
             )}
-             {scanResults.length === 0 && !isScanning && <p className="text-sm text-slate-400 italic">Enter a CIDR range and click scan. Only SNMP-enabled devices will appear.</p>}
         </div>
       )}
 
-      {/* MANUAL ADD MODAL */}
-      {showAdd && (
-        <div className="bg-white p-6 rounded-lg shadow-lg mb-8 border border-blue-100">
-          <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-4 items-end">
-            <input className="border p-2 rounded w-full" placeholder="Hostname" value={newDevice.hostname} onChange={e => setNewDevice({...newDevice, hostname: e.target.value})} required />
-            <input className="border p-2 rounded w-full" placeholder="IP Address" value={newDevice.ip} onChange={e => setNewDevice({...newDevice, ip: e.target.value})} required />
-            <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded">Save</button>
-          </form>
+      {/* ADD / EDIT MODAL */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md animate-in zoom-in-95">
+            <h3 className="font-bold text-xl mb-4 text-slate-800">
+              {formData.id ? 'Edit Device' : 'Add New Device'}
+            </h3>
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Hostname</label>
+                <input className="border p-2 rounded w-full" value={formData.hostname} onChange={e => setFormData({...formData, hostname: e.target.value})} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">IP Address</label>
+                <input className="border p-2 rounded w-full" value={formData.ip} onChange={e => setFormData({...formData, ip: e.target.value})} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Community String</label>
+                <input className="border p-2 rounded w-full" value={formData.community} onChange={e => setFormData({...formData, community: e.target.value})} />
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t mt-4">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Save Device</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -166,6 +204,9 @@ export default function Dashboard() {
                   <MapPin size={12} /> {d.location || "Unknown"}
                 </div>
                 <div className="flex gap-2">
+                  <button onClick={() => openEdit(d)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Edit">
+                    <Pencil size={16} />
+                  </button>
                   <button onClick={() => handleAction(d.is_paused ? 'resume' : 'pause', d.id)} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title={d.is_paused ? "Resume" : "Pause"}>
                     {d.is_paused ? <Play size={16} /> : <Pause size={16} />}
                   </button>
