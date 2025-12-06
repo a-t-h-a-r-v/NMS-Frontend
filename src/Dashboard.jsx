@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { Server, Plus, MapPin, Search, Pause, Play, Trash2 } from 'lucide-react';
+import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -9,6 +9,13 @@ export default function Dashboard() {
   const [devices, setDevices] = useState([]);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  
+  // Scanning States
+  const [showScan, setShowScan] = useState(false);
+  const [scanCidr, setScanCidr] = useState("192.168.1.0/24");
+  const [scanResults, setScanResults] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
+
   const [newDevice, setNewDevice] = useState({ hostname: '', ip: '', community: 'public' });
 
   const fetchDevices = () => {
@@ -35,6 +42,26 @@ export default function Dashboard() {
     fetchDevices();
   };
 
+  const runScan = async () => {
+    setIsScanning(true);
+    setScanResults([]);
+    try {
+        const res = await axios.post(`${API_URL}/scan`, { cidr: scanCidr });
+        setScanResults(res.data);
+    } catch(err) {
+        alert("Scan failed. Check console.");
+    } finally {
+        setIsScanning(false);
+    }
+  };
+
+  const addDiscovered = async (host) => {
+    await axios.post(`${API_URL}/devices`, { hostname: host.hostname, ip: host.ip, community: 'public' });
+    fetchDevices();
+    // Remove from results list to show it's done
+    setScanResults(scanResults.filter(r => r.ip !== host.ip));
+  };
+
   return (
     <div>
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
@@ -52,12 +79,60 @@ export default function Dashboard() {
             <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
           </div>
           
-          <button onClick={() => setShowAdd(!showAdd)} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700">
+          <button onClick={() => setShowScan(!showScan)} className="bg-indigo-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-indigo-700 transition">
+            <Radar size={18} /> Scan
+          </button>
+          <button onClick={() => setShowAdd(!showAdd)} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700 transition">
             <Plus size={18} /> Add
           </button>
         </div>
       </div>
 
+      {/* SCAN MODAL */}
+      {showScan && (
+        <div className="bg-white p-6 rounded-lg shadow-lg mb-8 border border-indigo-100 animate-in fade-in slide-in-from-top-4">
+            <h3 className="font-semibold mb-4 text-lg border-b pb-2 flex items-center gap-2 text-indigo-800">
+                <Radar size={20} /> Network Discovery
+            </h3>
+            <div className="flex gap-4 mb-4">
+                <input 
+                    className="border p-2 rounded flex-1 font-mono" 
+                    value={scanCidr} 
+                    onChange={e => setScanCidr(e.target.value)} 
+                    placeholder="192.168.1.0/24"
+                />
+                <button 
+                    onClick={runScan} 
+                    disabled={isScanning}
+                    className="bg-indigo-600 text-white px-6 py-2 rounded disabled:opacity-50"
+                >
+                    {isScanning ? "Scanning..." : "Start Scan"}
+                </button>
+            </div>
+            
+            {scanResults.length > 0 && (
+                <div className="bg-slate-50 rounded border p-4">
+                    <h4 className="font-bold text-sm text-slate-500 uppercase mb-2">Discovered Devices</h4>
+                    <ul className="space-y-2">
+                        {scanResults.map((r, i) => (
+                            <li key={i} className="flex justify-between items-center bg-white p-2 rounded shadow-sm">
+                                <div>
+                                    <span className="font-bold block">{r.ip}</span>
+                                    <span className="text-xs text-slate-500">{r.hostname}</span>
+                                </div>
+                                <button onClick={() => addDiscovered(r)} className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded font-bold hover:bg-green-200">
+                                    ADD
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+             {scanResults.length === 0 && !isScanning && <p className="text-sm text-slate-400 italic">Enter a CIDR range and click scan. Only SNMP-enabled devices will appear.</p>}
+        </div>
+      )}
+
+      {/* MANUAL ADD MODAL */}
       {showAdd && (
         <div className="bg-white p-6 rounded-lg shadow-lg mb-8 border border-blue-100">
           <form onSubmit={handleAdd} className="flex flex-col md:flex-row gap-4 items-end">
@@ -68,6 +143,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* DEVICE GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {devices.map(d => (
           <div key={d.id} className={`bg-white rounded-xl shadow-sm border transition-all ${d.is_paused ? 'border-yellow-300 bg-yellow-50' : 'border-slate-200 hover:border-blue-300'}`}>
