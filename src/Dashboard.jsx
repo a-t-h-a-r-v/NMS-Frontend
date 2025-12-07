@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar, Pencil, AlertTriangle, Lock } from 'lucide-react';
+import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar, Pencil, AlertTriangle, Lock, Wifi, WifiOff, HelpCircle } from 'lucide-react';
 import { getSession } from './utils/auth';
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -150,26 +150,67 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {devices.map(d => (
-          <div key={d.id} className={`bg-white rounded-xl shadow-sm border p-6 transition-all ${d.is_paused ? 'border-yellow-300 bg-yellow-50' : 'border-slate-200 hover:border-blue-300'}`}>
-             <div className="flex justify-between items-start mb-4">
-                <Link to={`/device/${d.id}`} className="font-bold text-lg text-slate-800 block group-hover:text-blue-600">{d.hostname}</Link>
-                {d.is_paused && <span className="text-xs font-bold bg-yellow-200 text-yellow-800 px-2 py-1 rounded">PAUSED</span>}
-             </div>
-             <p className="text-sm font-mono text-slate-500 mb-4">{d.ip}</p>
-             <div className="flex gap-2 border-t pt-4">
-                {d.can_write ? (
-                    <>
-                        <button onClick={() => openEdit(d)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Pencil size={16}/></button>
-                        <button onClick={() => handleAction(d.is_paused?'resume':'pause', d.id)} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded">{d.is_paused?<Play size={16}/>:<Pause size={16}/>}</button>
-                        <button onClick={() => handleAction('delete', d.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={16}/></button>
-                    </>
-                ) : (
-                    <span className="text-xs text-slate-400 flex items-center gap-1"><Lock size={12}/> Read Only</span>
-                )}
-             </div>
-          </div>
-        ))}
+        {devices.map(d => {
+          const isDown = d.status === 'down';
+          const isUnknown = d.status === 'unknown' || !d.status;
+          
+          let cardClass = 'border-slate-200 bg-white hover:border-blue-300';
+          let statusColor = 'text-green-600';
+          let StatusIcon = Wifi;
+          let statusText = 'ONLINE';
+
+          if (isDown) {
+            cardClass = 'border-red-300 bg-red-50';
+            statusColor = 'text-red-600';
+            StatusIcon = WifiOff;
+            statusText = 'OFFLINE';
+          } else if (isUnknown) {
+            cardClass = 'border-slate-200 bg-slate-50';
+            statusColor = 'text-slate-500';
+            StatusIcon = HelpCircle;
+            statusText = 'UNKNOWN';
+          } else if (d.is_paused) {
+            // Paused but technically "Up" or not polling
+            cardClass = 'border-yellow-300 bg-yellow-50';
+            statusColor = 'text-yellow-700';
+            StatusIcon = Pause;
+            statusText = 'PAUSED';
+          }
+
+          return (
+            <div key={d.id} className={`rounded-xl shadow-sm border p-6 transition-all ${cardClass}`}>
+               <div className="flex justify-between items-start mb-4">
+                  <div className="flex flex-col">
+                    <Link to={`/device/${d.id}`} className="font-bold text-lg text-slate-800 block hover:text-blue-600 truncate max-w-[180px]" title={d.hostname}>
+                        {d.hostname}
+                    </Link>
+                    <div className={`flex items-center gap-1 text-xs font-bold mt-1 ${statusColor}`}>
+                        <StatusIcon size={12} />
+                        {statusText}
+                    </div>
+                  </div>
+                  {/* Badge for specific states if needed, or keep clean */}
+                  {d.is_paused && !isDown && <span className="text-xs font-bold bg-yellow-200 text-yellow-800 px-2 py-1 rounded">PAUSED</span>}
+               </div>
+               
+               <p className="text-sm font-mono text-slate-500 mb-4 bg-slate-100/50 p-1 rounded w-fit px-2">{d.ip}</p>
+               
+               <div className="flex gap-2 border-t border-slate-200/60 pt-4 mt-auto">
+                  {d.can_write ? (
+                      <>
+                          <button onClick={() => openEdit(d)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Edit"><Pencil size={18}/></button>
+                          <button onClick={() => handleAction(d.is_paused?'resume':'pause', d.id)} className={`p-2 rounded-lg transition-colors ${d.is_paused ? 'text-green-600 hover:bg-green-100' : 'text-orange-500 hover:bg-orange-100'}`} title={d.is_paused?"Resume":"Pause"}>
+                              {d.is_paused ? <Play size={18}/> : <Pause size={18}/>}
+                          </button>
+                          <button onClick={() => handleAction('delete', d.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="Delete"><Trash2 size={18}/></button>
+                      </>
+                  ) : (
+                      <span className="text-xs text-slate-400 flex items-center gap-1 py-2"><Lock size={14}/> Read Only</span>
+                  )}
+               </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* CONFLICT MODAL */}
@@ -199,14 +240,23 @@ export default function Dashboard() {
       {showModal && !conflictData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-            <h3 className="font-bold text-xl mb-4">{formData.id ? 'Edit Device' : 'Add New Device'}</h3>
+            <h3 className="font-bold text-xl mb-4 text-slate-800">{formData.id ? 'Edit Device' : 'Add New Device'}</h3>
             <form onSubmit={handleSave} className="space-y-4">
-              <input className="border p-2 rounded w-full" placeholder="Hostname" value={formData.hostname} onChange={e => setFormData({...formData, hostname: e.target.value})} required />
-              <input className="border p-2 rounded w-full" placeholder="IP Address" value={formData.ip} onChange={e => setFormData({...formData, ip: e.target.value})} required />
-              <input className="border p-2 rounded w-full" placeholder="Community" value={formData.community} onChange={e => setFormData({...formData, community: e.target.value})} />
-              <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-slate-600">Cancel</button>
-                <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded">Save</button>
+              <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Hostname</label>
+                  <input className="border border-slate-300 p-2 rounded w-full focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Core-Switch-01" value={formData.hostname} onChange={e => setFormData({...formData, hostname: e.target.value})} required />
+              </div>
+              <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">IP Address</label>
+                  <input className="border border-slate-300 p-2 rounded w-full focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. 192.168.1.1" value={formData.ip} onChange={e => setFormData({...formData, ip: e.target.value})} required />
+              </div>
+              <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">SNMP Community</label>
+                  <input className="border border-slate-300 p-2 rounded w-full focus:ring-2 focus:ring-blue-500 outline-none" placeholder="public" value={formData.community} onChange={e => setFormData({...formData, community: e.target.value})} />
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t mt-6">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 shadow-sm">Save Device</button>
               </div>
             </form>
           </div>
