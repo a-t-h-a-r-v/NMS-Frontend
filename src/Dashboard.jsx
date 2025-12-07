@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar, Pencil, AlertTriangle } from 'lucide-react';
+import { Server, Plus, MapPin, Search, Pause, Play, Trash2, Radar, Pencil, AlertTriangle, Lock } from 'lucide-react';
+import { getSession } from './utils/auth';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Dashboard() {
   const [devices, setDevices] = useState([]);
   const [search, setSearch] = useState("");
+  const { user } = getSession();
+  const isAdmin = user?.role === 'admin';
   
   // Modals
   const [showModal, setShowModal] = useState(false);
   const [showScan, setShowScan] = useState(false);
-  const [conflictData, setConflictData] = useState(null); // For 409 Conflicts
+  const [conflictData, setConflictData] = useState(null);
 
   // Data States
   const [formData, setFormData] = useState({ id: null, hostname: '', ip: '', community: 'public' });
@@ -20,7 +23,6 @@ export default function Dashboard() {
   const [scanResults, setScanResults] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
 
-  // Fetch
   const fetchDevices = () => {
     axios.get(`${API_URL}/devices?q=${search}`).then(res => setDevices(res.data || []));
   };
@@ -30,44 +32,37 @@ export default function Dashboard() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Actions
   const handleAction = async (action, id) => {
       if (action === 'delete' && !confirm("Delete this device?")) return;
-      await axios.post(`${API_URL}/device/action`, { action, id });
-      fetchDevices();
+      try {
+        await axios.post(`${API_URL}/device/action`, { action, id });
+        fetchDevices();
+      } catch (err) {
+        alert("Action failed: Permission denied");
+      }
   };
 
-  // Modals
   const openCreate = () => {
     setFormData({ id: null, hostname: '', ip: '', community: 'public' });
     setShowModal(true);
   };
 
   const openEdit = (device) => {
+    if (!device.can_write) return;
     setFormData({ id: device.id, hostname: device.hostname, ip: device.ip, community: device.community || 'public' });
     setShowModal(true);
   };
 
-  // Save Logic (Create/Edit)
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      if (formData.id) {
-        // Edit Mode (PUT)
-        await axios.put(`${API_URL}/devices`, formData);
-        setShowModal(false);
-      } else {
-        // Create Mode (POST)
-        await axios.post(`${API_URL}/devices`, formData);
-        setShowModal(false);
-      }
+      if (formData.id) await axios.put(`${API_URL}/devices`, formData);
+      else await axios.post(`${API_URL}/devices`, formData);
+      setShowModal(false);
       fetchDevices();
     } catch (err) {
-      if (err.response && err.response.status === 409) {
-        setConflictData(err.response.data); // Show Conflict Modal
-      } else {
-        alert("Error saving device: " + err.message);
-      }
+      if (err.response && err.response.status === 409) setConflictData(err.response.data);
+      else alert("Error: " + (err.response?.data || err.message));
     }
   };
 
@@ -83,7 +78,6 @@ export default function Dashboard() {
     }
   };
 
-  // Scanning Logic
   const runScan = async () => {
     setIsScanning(true);
     setScanResults([]);
@@ -91,7 +85,7 @@ export default function Dashboard() {
         const res = await axios.post(`${API_URL}/scan`, { cidr: scanCidr });
         setScanResults(res.data);
     } catch(err) {
-        alert("Scan failed. Check console.");
+        alert("Scan failed. Ensure you are an admin.");
     } finally {
         setIsScanning(false);
     }
@@ -104,7 +98,6 @@ export default function Dashboard() {
       setScanResults(scanResults.filter(r => r.ip !== host.ip));
     } catch (err) {
       if (err.response && err.response.status === 409) {
-         // Auto-fill form and show conflict modal for discovered device
          setFormData({ id: null, hostname: host.hostname, ip: host.ip, community: 'public' });
          setConflictData(err.response.data);
       }
@@ -113,39 +106,36 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <h1 className="text-2xl font-bold text-slate-800">Device Dashboard</h1>
         <div className="flex gap-3 w-full md:w-auto">
             <input className="pl-9 pr-4 py-2 border rounded-lg w-full" placeholder="Search..." value={search} onChange={e=>setSearch(e.target.value)} />
-            <button onClick={() => setShowScan(!showScan)} className="bg-indigo-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-indigo-700">
-                <Radar size={18}/> Scan
-            </button>
-            <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700">
-                <Plus size={18}/> Add
-            </button>
+            {isAdmin && (
+                <>
+                    <button onClick={() => setShowScan(!showScan)} className="bg-indigo-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-indigo-700">
+                        <Radar size={18}/> Scan
+                    </button>
+                    <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700">
+                        <Plus size={18}/> Add
+                    </button>
+                </>
+            )}
         </div>
       </div>
 
-      {/* SCAN PANEL (Restored) */}
-      {showScan && (
-        <div className="bg-white p-6 rounded-lg shadow-lg mb-8 border border-indigo-100 animate-in fade-in slide-in-from-top-4">
+      {showScan && isAdmin && (
+        <div className="bg-white p-6 rounded-lg shadow-lg mb-8 border border-indigo-100">
             <h3 className="font-semibold mb-4 text-lg border-b pb-2 flex items-center gap-2 text-indigo-800">
                 <Radar size={20} /> Network Discovery
             </h3>
             <div className="flex gap-4 mb-4">
-                <input 
-                    className="border p-2 rounded flex-1 font-mono" 
-                    value={scanCidr} onChange={e => setScanCidr(e.target.value)} 
-                    placeholder="192.168.1.0/24"
-                />
+                <input className="border p-2 rounded flex-1 font-mono" value={scanCidr} onChange={e => setScanCidr(e.target.value)} />
                 <button onClick={runScan} disabled={isScanning} className="bg-indigo-600 text-white px-6 py-2 rounded disabled:opacity-50">
                     {isScanning ? "Scanning..." : "Start Scan"}
                 </button>
             </div>
             {scanResults.length > 0 && (
                 <div className="bg-slate-50 rounded border p-4">
-                    <h4 className="font-bold text-sm text-slate-500 uppercase mb-2">Found Devices</h4>
                     <ul className="space-y-2">
                         {scanResults.map((r, i) => (
                             <li key={i} className="flex justify-between items-center bg-white p-2 rounded shadow-sm">
@@ -156,11 +146,9 @@ export default function Dashboard() {
                     </ul>
                 </div>
             )}
-            {scanResults.length === 0 && !isScanning && <p className="text-sm text-slate-400 italic">Enter CIDR range to scan.</p>}
         </div>
       )}
 
-      {/* DEVICE GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {devices.map(d => (
           <div key={d.id} className={`bg-white rounded-xl shadow-sm border p-6 transition-all ${d.is_paused ? 'border-yellow-300 bg-yellow-50' : 'border-slate-200 hover:border-blue-300'}`}>
@@ -170,9 +158,15 @@ export default function Dashboard() {
              </div>
              <p className="text-sm font-mono text-slate-500 mb-4">{d.ip}</p>
              <div className="flex gap-2 border-t pt-4">
-                <button onClick={() => openEdit(d)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Edit"><Pencil size={16}/></button>
-                <button onClick={() => handleAction(d.is_paused?'resume':'pause', d.id)} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title={d.is_paused?"Resume":"Pause"}>{d.is_paused?<Play size={16}/>:<Pause size={16}/>}</button>
-                <button onClick={() => handleAction('delete', d.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded" title="Delete"><Trash2 size={16}/></button>
+                {d.can_write ? (
+                    <>
+                        <button onClick={() => openEdit(d)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Pencil size={16}/></button>
+                        <button onClick={() => handleAction(d.is_paused?'resume':'pause', d.id)} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded">{d.is_paused?<Play size={16}/>:<Pause size={16}/>}</button>
+                        <button onClick={() => handleAction('delete', d.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={16}/></button>
+                    </>
+                ) : (
+                    <span className="text-xs text-slate-400 flex items-center gap-1"><Lock size={12}/> Read Only</span>
+                )}
              </div>
           </div>
         ))}
