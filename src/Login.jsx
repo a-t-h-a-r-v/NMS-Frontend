@@ -1,38 +1,56 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { setSession } from './utils/auth';
 import { Lock, User } from 'lucide-react';
+import JSEncrypt from 'jsencrypt';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Login() {
   const [creds, setCreds] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
+  const [publicKey, setPublicKey] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Fetch Public Key on load
+    axios.get(`${API_URL}/auth/key`).then(res => setPublicKey(res.data.publicKey));
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError(''); // Clear previous errors
+    setError('');
+    
+    if (!publicKey) {
+      setError("Secure connection not established. Try refreshing.");
+      return;
+    }
+
     try {
-      const res = await axios.post(`${API_URL}/login`, creds);
+      // Encrypt Credentials
+      const encryptor = new JSEncrypt();
+      encryptor.setPublicKey(publicKey);
+      const payload = encryptor.encrypt(JSON.stringify(creds));
+
+      if (!payload) {
+        setError("Encryption failed");
+        return;
+      }
+
+      // Send Encrypted Payload
+      const res = await axios.post(`${API_URL}/login`, { payload });
       
-      // Ensure we actually got data back
       if (res.data && res.data.token) {
-          console.log("Login successful, saving session...");
           setSession(res.data.token, res.data.user);
           navigate('/');
-      } else {
-          setError('Server responded, but no token received.');
       }
     } catch (err) {
-      console.error("Login Error Details:", err); // Check F12 Console for this
+      console.error(err);
       if (err.response && err.response.status === 401) {
         setError('Invalid credentials');
-      } else if (err.message) {
-        setError(`Error: ${err.message}`); // Shows JS errors (like BS_KEY) in UI
       } else {
-        setError('Login failed. Check console.');
+        setError('Login failed. Check server logs.');
       }
     }
   };
@@ -63,10 +81,9 @@ export default function Login() {
             />
           </div>
           <button className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
-            Sign In
+            Sign In (Secure)
           </button>
         </form>
-        <p className="mt-4 text-center text-xs text-slate-400">Default: admin / password</p>
       </div>
     </div>
   );
